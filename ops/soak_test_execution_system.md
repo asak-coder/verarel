@@ -8,7 +8,7 @@ This document converts the 7-day soak test into a daily production execution sys
 - Use production metrics, logs, traces, and synthetic checks only.
 - Every daily action must produce a written artifact:
   - checklist completion
-  - alert triage notes
+  - alert triage notesgit push -u origin main
   - incident log entries
   - optimization decisions
   - end-of-day report

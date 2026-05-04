@@ -4,8 +4,6 @@ databases:
     region: oregon
     postgresMajorVersion: 16
     ipAllowList: []
-    postgisExtensions:
-      - postgis
 
 services:
   - type: redis
@@ -21,70 +19,44 @@ services:
     region: oregon
     rootDir: .
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --proxy-headers
+
+    startCommand: >
+      gunicorn app.main:app
+      -k uvicorn.workers.UvicornWorker
+      -w 2
+      --threads 2
+      --timeout 60
+      --keep-alive 5
+
     autoDeploy: true
     healthCheckPath: /healthz
+
     envVars:
       - key: DATABASE_URL
         fromDatabase:
           name: aken-postgres
           property: connectionString
+
       - key: REDIS_URL
         fromService:
           name: aken-redis
           type: redis
           property: connectionString
+
       - key: ANTHROPIC_API_KEY
         sync: false
-      - key: PINECONE_API_KEY
-        sync: false
+
       - key: JWT_SECRET
         sync: false
+
       - key: SERVICE_NAME
         value: aken-api
-      - key: SERVICE_ENV
-        value: production
-      - key: PYTHONUNBUFFERED
-        value: "1"
-      - key: LOG_LEVEL
-        value: INFO
-      - key: ANTHROPIC_MODEL
-        value: claude-3-5-sonnet-20240620
+
       - key: ENVIRONMENT
         value: production
 
-  - type: worker
-    name: aken-worker
-    env: python
-    plan: starter
-    region: oregon
-    rootDir: .
-    buildCommand: pip install -r requirements.txt
-    startCommand: celery -A app.workers.tasks worker --loglevel=info --concurrency=4 --prefetch-multiplier=1
-    autoDeploy: true
-    envVars:
-      - key: DATABASE_URL
-        fromDatabase:
-          name: aken-postgres
-          property: connectionString
-      - key: REDIS_URL
-        fromService:
-          name: aken-redis
-          type: redis
-          property: connectionString
-      - key: ANTHROPIC_API_KEY
-        sync: false
-      - key: PINECONE_API_KEY
-        sync: false
-      - key: JWT_SECRET
-        sync: false
-      - key: SERVICE_NAME
-        value: aken-worker
-      - key: SERVICE_ENV
-        value: production
-      - key: PYTHONUNBUFFERED
-        value: "1"
       - key: LOG_LEVEL
         value: INFO
-      - key: ENVIRONMENT
-        value: production
+
+      - key: PYTHONUNBUFFERED
+        value: "1"
