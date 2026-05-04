@@ -1,0 +1,8 @@
+# Example cron entry for the synthetic monitoring bot.
+# Adjust paths for your deployment environment and export secrets via the runtime.
+#
+# Run every 5 minutes and emit JSON logs to stdout/stderr.
+*/5 * * * * cd /app && SYNTHETIC_BASE_URL="https://api.example.com" \
+  SYNTHETIC_EMAIL="synthetic@example.com" \
+  SYNTHETIC_PASSWORD="${SYNTHETIC_PASSWORD}" \
+  python3 scripts/run_synthetic_monitoring.py --strict >> /var/log/synthetic-monitoring.log 2>&1

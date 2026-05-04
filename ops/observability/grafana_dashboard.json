@@ -1,0 +1,205 @@
+{
+  "uid": "aken-observability",
+  "title": "Aken Observability",
+  "tags": ["aken", "production", "sre"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "15s",
+  "time": {"from": "now-6h", "to": "now"},
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "query": "label_values(aken_api_requests_total, service)",
+        "refresh": 1,
+        "includeAll": true,
+        "multi": true,
+        "current": {"selected": true, "text": "All", "value": "$__all"}
+      },
+      {
+        "name": "env",
+        "type": "query",
+        "datasource": {"type": "prometheus", "uid": "prometheus"},
+        "query": "label_values(aken_api_requests_total, env)",
+        "refresh": 1,
+        "includeAll": true,
+        "multi": true,
+        "current": {"selected": true, "text": "All", "value": "$__all"}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "System Health",
+      "gridPos": {"h": 6, "w": 4, "x": 0, "y": 0},
+      "targets": [
+        {
+          "expr": "min(aken_system_health{service=~\"$service\", env=~\"$env\"})",
+          "legendFormat": "health"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "red", "value": 0},
+              {"color": "yellow", "value": 0.85},
+              {"color": "green", "value": 0.95}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "API Request Rate",
+      "gridPos": {"h": 8, "w": 8, "x": 4, "y": 0},
+      "targets": [
+        {
+          "expr": "sum(rate(aken_api_requests_total{service=~\"$service\", env=~\"$env\"}[5m])) by (endpoint, method)",
+          "legendFormat": "{{endpoint}} {{method}}"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "API p95 Latency",
+      "gridPos": {"h": 8, "w": 8, "x": 12, "y": 0},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(aken_api_request_latency_seconds_bucket{service=~\"$service\", env=~\"$env\"}[5m])) by (le, endpoint, method))",
+          "legendFormat": "{{endpoint}} {{method}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": 0},
+              {"color": "yellow", "value": 0.5},
+              {"color": "red", "value": 0.8}
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "User Activity Funnel",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+      "targets": [
+        {"expr": "sum(rate(aken_api_requests_total{endpoint=\"/auth/login\",service=~\"$service\", env=~\"$env\"}[5m]))", "legendFormat": "auth"},
+        {"expr": "sum(rate(aken_api_requests_total{endpoint=\"/interactions/swipe\",service=~\"$service\", env=~\"$env\"}[5m]))", "legendFormat": "swipes"},
+        {"expr": "sum(rate(aken_websocket_connections_total{event=\"connect\",service=~\"$service\", env=~\"$env\"}[5m]))", "legendFormat": "ws connects"},
+        {"expr": "sum(rate(aken_uploads_total{status=\"success\",service=~\"$service\", env=~\"$env\"}[5m]))", "legendFormat": "uploads"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "WebSocket Stability",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+      "targets": [
+        {"expr": "sum(aken_websocket_active_connections{service=~\"$service\", env=~\"$env\"})", "legendFormat": "active"},
+        {"expr": "sum(rate(aken_websocket_failures_total{service=~\"$service\", env=~\"$env\"}[5m]))", "legendFormat": "failures"},
+        {"expr": "sum(rate(aken_websocket_messages_total{direction=\"in\",service=~\"$service\", env=~\"$env\"}[5m]))", "legendFormat": "in"},
+        {"expr": "sum(rate(aken_websocket_messages_total{direction=\"out\",service=~\"$service\", env=~\"$env\"}[5m]))", "legendFormat": "out"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "AI Performance",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(aken_ai_latency_seconds_bucket{service=~\"$service\", env=~\"$env\"}[5m])) by (le, operation, provider))",
+          "legendFormat": "{{operation}} {{provider}}"
+        },
+        {
+          "expr": "sum(rate(aken_ai_requests_total{status!=\"success\",service=~\"$service\", env=~\"$env\"}[5m]))",
+          "legendFormat": "errors"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Geo Engine",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(aken_geo_query_latency_seconds_bucket{service=~\"$service\", env=~\"$env\"}[5m])) by (le, query))",
+          "legendFormat": "{{query}}"
+        },
+        {
+          "expr": "avg(aken_geo_query_cache_hit_ratio{service=~\"$service\", env=~\"$env\"})",
+          "legendFormat": "cache hit ratio"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Media Pipeline",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 24},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(aken_upload_latency_seconds_bucket{service=~\"$service\", env=~\"$env\"}[5m])) by (le, media_type, source))",
+          "legendFormat": "{{media_type}} {{source}}"
+        },
+        {
+          "expr": "sum(rate(aken_uploads_total{status=\"failure\",service=~\"$service\", env=~\"$env\"}[5m]))",
+          "legendFormat": "failures"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "DB Health",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 24},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(aken_db_query_latency_seconds_bucket{service=~\"$service\", env=~\"$env\"}[5m])) by (le, operation, table))",
+          "legendFormat": "{{table}} {{operation}}"
+        },
+        {
+          "expr": "sum(increase(aken_db_deadlocks_total{service=~\"$service\", env=~\"$env\"}[10m]))",
+          "legendFormat": "deadlocks"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Redis Health",
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 32},
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(aken_redis_command_latency_seconds_bucket{service=~\"$service\", env=~\"$env\"}[5m])) by (le, command))",
+          "legendFormat": "{{command}}"
+        },
+        {
+          "expr": "avg(aken_redis_hit_ratio{service=~\"$service\", env=~\"$env\"})",
+          "legendFormat": "hit ratio"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Cost Monitoring",
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 32},
+      "targets": [
+        {
+          "expr": "sum(increase(aken_cost_estimated_usd_total{service=~\"$service\", env=~\"$env\"}[1h])) by (vendor)",
+          "legendFormat": "{{vendor}}"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,26 @@
+name: aken_mobile
+description: Premium Flutter mobile client for the dating app
+publish_to: "none"
+version: 1.0.0+1
+
+environment:
+  sdk: ">=3.4.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^2.5.1
+  dio: ^5.7.0
+  web_socket_channel: ^3.0.1
+  camera: ^0.11.0+2
+  go_router: ^14.2.7
+  image_picker: ^1.1.2
+  screen_protector: ^1.1.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true

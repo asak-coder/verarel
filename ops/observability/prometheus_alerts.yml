@@ -1,0 +1,132 @@
+groups:
+  - name: aken-api-alerts
+    rules:
+      - alert: HighHttpLatencyP95
+        expr: histogram_quantile(0.95, sum(rate(aken_api_request_latency_seconds_bucket[5m])) by (le, endpoint, method, service, env)) > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "HTTP p95 latency high"
+          description: "API latency p95 is above 800ms for 10m on {{ $labels.endpoint }} ({{ $labels.method }})"
+
+      - alert: HighHttpErrorRate
+        expr: sum(rate(aken_api_requests_total{status=~"5.."}[5m])) by (service, env) / sum(rate(aken_api_requests_total[5m])) by (service, env) > 0.02
+        for: 5m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "HTTP 5xx error rate above 2%"
+          description: "API 5xx ratio exceeded 2% for 5m"
+
+      - alert: WebSocketInstability
+        expr: (sum(rate(aken_websocket_failures_total[5m])) by (endpoint, service, env) / clamp_min(sum(rate(aken_websocket_connections_total{event="connect"}[5m])) by (endpoint, service, env), 1)) > 0.10
+        for: 10m
+        labels:
+          severity: warning
+          team: realtime
+        annotations:
+          summary: "WebSocket instability detected"
+          description: "WebSocket failures exceed 10% of connects for {{ $labels.endpoint }}"
+
+      - alert: WebSocketConnectionDrop
+        expr: sum(aken_websocket_active_connections) by (service, env) < 50
+        for: 5m
+        labels:
+          severity: critical
+          team: realtime
+        annotations:
+          summary: "Active WebSocket connections dropped"
+          description: "Active connection count is below expected baseline"
+
+      - alert: DatabaseDeadlocks
+        expr: increase(aken_db_deadlocks_total[10m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          team: backend
+        annotations:
+          summary: "Database deadlocks detected"
+          description: "Deadlocks occurred in the last 10m"
+
+      - alert: DatabaseSlowQueries
+        expr: histogram_quantile(0.95, sum(rate(aken_db_query_latency_seconds_bucket[5m])) by (le, operation, table, service, env)) > 0.25
+        for: 15m
+        labels:
+          severity: warning
+          team: backend
+        annotations:
+          summary: "Slow database queries"
+          description: "DB p95 query latency above 250ms for 15m"
+
+      - alert: RedisLatencyHigh
+        expr: histogram_quantile(0.95, sum(rate(aken_redis_command_latency_seconds_bucket[5m])) by (le, command, service, env)) > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Redis latency high"
+          description: "Redis p95 command latency above 50ms"
+
+      - alert: RedisErrorSpike
+        expr: sum(increase(aken_redis_errors_total[10m])) by (service, env) > 5
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Redis errors spiking"
+          description: "Redis error count is above threshold"
+
+      - alert: AITimeoutSpike
+        expr: sum(increase(aken_ai_timeouts_total[10m])) by (operation, provider, service, env) > 3
+        for: 10m
+        labels:
+          severity: warning
+          team: ai
+        annotations:
+          summary: "AI timeouts increasing"
+          description: "AI timeout count exceeded threshold for {{ $labels.operation }}"
+
+      - alert: AIFailureRateHigh
+        expr: sum(rate(aken_ai_requests_total{status!="success"}[5m])) by (operation, provider, service, env) / clamp_min(sum(rate(aken_ai_requests_total[5m])) by (operation, provider, service, env), 1) > 0.08
+        for: 10m
+        labels:
+          severity: critical
+          team: ai
+        annotations:
+          summary: "AI failure rate above 8%"
+          description: "AI failure rate exceeded threshold for {{ $labels.operation }}"
+
+      - alert: UploadFailureSpike
+        expr: sum(rate(aken_uploads_total{status="failure"}[5m])) by (media_type, source, service, env) > 2
+        for: 10m
+        labels:
+          severity: warning
+          team: media
+        annotations:
+          summary: "Upload failures increasing"
+          description: "Upload failure rate is elevated for {{ $labels.media_type }}"
+
+      - alert: GeoQueryLatencyHigh
+        expr: histogram_quantile(0.95, sum(rate(aken_geo_query_latency_seconds_bucket[5m])) by (le, query, service, env)) > 0.15
+        for: 10m
+        labels:
+          severity: warning
+          team: geo
+        annotations:
+          summary: "Geo query latency high"
+          description: "Geo engine p95 latency above 150ms"
+
+      - alert: CostOverspendRisk
+        expr: sum(increase(aken_cost_estimated_usd_total[1h])) by (vendor, service, env) > 25
+        for: 15m
+        labels:
+          severity: warning
+          team: finance
+        annotations:
+          summary: "Cost run-rate elevated"
+          description: "Estimated spend exceeded hourly budget threshold"

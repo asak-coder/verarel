@@ -1,0 +1,54 @@
+default_platform(:ios)
+
+platform :android do
+  desc "Build and upload Android App Bundle to Google Play"
+  lane :deploy do
+    increment_version_code(
+      gradle_file_path: "android/app/build.gradle"
+    )
+
+    build_app(
+      workspace: nil,
+      project: nil,
+      export_method: nil,
+      skip_package_ipa: true,
+      skip_package_pkg: true
+    )
+
+    sh("flutter build appbundle --release")
+
+    upload_to_play_store(
+      aab: "../build/app/outputs/bundle/release/app-release.aab",
+      json_key: ENV.fetch("GOOGLE_PLAY_JSON_KEY_PATH"),
+      track: "internal",
+      skip_upload_metadata: true,
+      skip_upload_images: true,
+      skip_upload_screenshots: true
+    )
+  end
+end
+
+platform :ios do
+  desc "Build and upload iOS IPA to TestFlight"
+  lane :deploy do
+    increment_build_number(
+      xcodeproj: "ios/Runner.xcodeproj"
+    )
+
+    sh("flutter build ipa --release")
+
+    upload_to_app_store(
+      ipa: "../build/ios/ipa/*.ipa",
+      skip_metadata: true,
+      skip_screenshots: true,
+      submit_for_review: false,
+      automatic_release: false
+    )
+  end
+end
+
+desc "Deploy Android and iOS builds"
+lane :deploy do
+  android.deploy
+  ios.deploy
+end
