@@ -1,31 +1,45 @@
 import 'package:dio/dio.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
-import '../controllers/auth_controller.dart';
-import '../services/chat_client.dart';
+import 'api/api_client.dart';
+import 'services/auth_service.dart';
+import 'services/chat_service.dart';
+import 'services/compatibility_service.dart';
+import 'services/date_plan_service.dart';
+import 'services/trust_service.dart';
+
+final secureStorageProvider = Provider<FlutterSecureStorage>((ref) {
+  return const FlutterSecureStorage();
+});
+
+final apiClientProvider = Provider<ApiClient>((ref) {
+  return ApiClient(storage: ref.read(secureStorageProvider));
+});
 
 final dioProvider = Provider<Dio>((ref) {
-  return Dio(
-    BaseOptions(
-      baseUrl: 'https://api.aken.firm.in',
-      connectTimeout: const Duration(seconds: 15),
-      receiveTimeout: const Duration(seconds: 20),
-      sendTimeout: const Duration(seconds: 20),
-      headers: <String, dynamic>{
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-    ),
-  );
+  return ref.read(apiClientProvider).dio;
 });
 
-final authStateProvider = StateNotifierProvider<AuthController, AuthState>((ref) {
-  return AuthController(ref.read(dioProvider));
-});
-
-final chatClientProvider = Provider<ChatClient>((ref) {
-  return ChatClient(
+final authServiceProvider = Provider<AuthService>((ref) {
+  return AuthService(
     dio: ref.read(dioProvider),
-    getAccessToken: () => ref.read(authStateProvider).accessToken,
+    storage: ref.read(secureStorageProvider),
   );
+});
+
+final chatServiceProvider = Provider<ChatService>((ref) {
+  return ChatService(ref.read(dioProvider));
+});
+
+final compatibilityServiceProvider = Provider<CompatibilityService>((ref) {
+  return CompatibilityService(ref.read(dioProvider));
+});
+
+final trustServiceProvider = Provider<TrustService>((ref) {
+  return TrustService(ref.read(dioProvider));
+});
+
+final datePlanServiceProvider = Provider<DatePlanService>((ref) {
+  return DatePlanService(ref.read(dioProvider));
 });

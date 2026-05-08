@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from jose import JWTError, jwt
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.security import ALGORITHM, SECRET_KEY
 from app.database import SessionLocal, get_db
 from app.models.interaction import ChatMessage, Match
-from app.services.nlp_service import analyze_tone, generate_icebreakers, moderate_text
+from app.services.nlp_service import analyze_tone, generate_chat_suggestions, generate_icebreakers, moderate_text
 from app.services.redis_service import redis_service
 from app.services.security_service import analyze_image_payload
 
@@ -45,6 +45,22 @@ class ToneCheckRequest(BaseModel):
 
 class ToneCheckResponse(BaseModel):
     analysis: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ChatSuggestionsRequest(BaseModel):
+    user_id: int = Field(gt=0)
+    match_id: int = Field(gt=0)
+    recent_messages: list[dict[str, Any]] = Field(default_factory=list)
+    mode: str = Field(default="reply", min_length=3, max_length=32)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ChatSuggestionsResponse(BaseModel):
+    suggestions: list[str]
+    cache_hit: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -134,6 +150,51 @@ def _is_image_payload(payload: dict[str, Any]) -> bool:
     return any(key in payload for key in ("image_base64", "image_data", "image_url"))
 
 
+def _fallback_suggestions(mode: str) -> list[str]:
+    if mode == "icebreaker":
+        return [
+            "Hey, I noticed your profile and wanted to say hi.",
+            "What’s something you’ve been into lately?",
+            "Any weekend plans you’re excited about?",
+        ]
+    if mode == "reengagement":
+        return [
+            "Hey! How’s your week going?",
+            "What are you up to today?",
+            "Thought I’d check in and say hi.",
+        ]
+    return [
+        "That sounds interesting, tell me more.",
+        "What happened next?",
+        "What do you usually do in that situation?",
+    ]
+
+
+async def _generate_and_cache_chat_suggestions(
+    user_id: int,
+    match_id: int,
+    recent_messages: list[dict[str, Any]],
+    mode: str,
+) -> None:
+    async with SessionLocal() as session:
+        match = await session.scalar(select(Match).where(Match.id == match_id))
+        if match is None:
+            return
+        match_user_id = match.user_b_id if match.user_a_id == user_id else match.user_a_id
+        try:
+            result = await generate_chat_suggestions(
+                session=session,
+                user_id=user_id,
+                match_id=match_id,
+                match_user_id=match_user_id,
+                recent_messages=recent_messages,
+                mode=mode,
+            )
+            await redis_service.set_chat_suggestions(user_id, match_id, result.suggestions)
+        except Exception:
+            await redis_service.set_chat_suggestions(user_id, match_id, _fallback_suggestions(mode))
+
+
 @router.post("/icebreakers", response_model=IcebreakerResponse, status_code=status.HTTP_200_OK)
 async def get_icebreakers(
     request: IcebreakerRequest,
@@ -157,6 +218,44 @@ async def get_tone_check(request: ToneCheckRequest) -> ToneCheckResponse:
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail="Unable to analyze tone") from exc
 
     return ToneCheckResponse(analysis=result.analysis)
+
+
+@router.get("/suggestions/{match_id}", response_model=ChatSuggestionsResponse, status_code=status.HTTP_200_OK)
+@router.get("/api/chat/suggestions/{match_id}", response_model=ChatSuggestionsResponse, include_in_schema=False)
+async def get_chat_suggestions(match_id: int, user_id: int = Query(gt=0), db: AsyncSession = Depends(get_db)) -> ChatSuggestionsResponse:
+    match = await db.scalar(select(Match).where(Match.id == match_id))
+    if match is None or user_id not in {match.user_a_id, match.user_b_id}:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Match not found")
+    cached = await redis_service.get_chat_suggestions(user_id, match_id)
+    if cached is not None:
+        return ChatSuggestionsResponse(suggestions=cached, cache_hit=True)
+    await _generate_and_cache_chat_suggestions(
+        user_id=user_id,
+        match_id=match_id,
+        recent_messages=[],
+        mode="icebreaker" if not await db.scalar(select(ChatMessage.id).where(ChatMessage.match_id == match_id)) else "reply",
+    )
+    fallback = await redis_service.get_chat_suggestions(user_id, match_id) or _fallback_suggestions("reply")
+    return ChatSuggestionsResponse(suggestions=fallback, cache_hit=False)
+
+
+@router.post("/generate", status_code=status.HTTP_202_ACCEPTED)
+async def generate_chat_suggestions_async(
+    request: ChatSuggestionsRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+) -> dict[str, str]:
+    match = await db.scalar(select(Match).where(Match.id == request.match_id))
+    if match is None or request.user_id not in {match.user_a_id, match.user_b_id}:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Match not found")
+    background_tasks.add_task(
+        _generate_and_cache_chat_suggestions,
+        request.user_id,
+        request.match_id,
+        request.recent_messages,
+        request.mode,
+    )
+    return {"status": "queued"}
 
 
 @router.websocket("/ws/{match_id}")
@@ -245,6 +344,16 @@ async def websocket_chat(websocket: WebSocket, match_id: int) -> None:
                     outgoing["display_mode"] = "blur"
 
             await manager.broadcast(match_id, outgoing)
+            background_mode = "icebreaker" if not message_text else "reply"
+            background_task_payload = [{"role": "user", "content": message_text}] if message_text else []
+            asyncio.create_task(
+                _generate_and_cache_chat_suggestions(
+                    user_id=user_id,
+                    match_id=match_id,
+                    recent_messages=background_task_payload,
+                    mode=background_mode,
+                )
+            )
     except WebSocketDisconnect:
         pass
     except BrokenPipeError:

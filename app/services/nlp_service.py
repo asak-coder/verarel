@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from typing import Any
 
@@ -18,6 +19,9 @@ from app.services.vector_service import PINECONE_NAMESPACE, get_pinecone_index
 
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-3-5-sonnet-20240620")
+MAX_CHAT_SUGGESTION_MESSAGES = int(os.getenv("MAX_CHAT_SUGGESTION_MESSAGES", "10"))
+MAX_CHAT_MESSAGE_LENGTH = int(os.getenv("MAX_CHAT_MESSAGE_LENGTH", "500"))
+SANITIZE_RE = re.compile(r"[\x00-\x1f\x7f<>`$\\\\]")
 
 
 class ModerationResult(BaseModel):
@@ -32,6 +36,10 @@ class IcebreakerResult(BaseModel):
 
 class ToneAnalysisResult(BaseModel):
     analysis: str = Field(min_length=5, max_length=140)
+
+
+class ChatSuggestionsResult(BaseModel):
+    suggestions: list[str] = Field(min_length=3, max_length=5)
 
 
 @dataclass(frozen=True)
@@ -108,6 +116,24 @@ def _json_text(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
+def _sanitize_text(value: str, max_length: int) -> str:
+    cleaned = SANITIZE_RE.sub(" ", value).strip()
+    cleaned = re.sub(r"\s+", " ", cleaned)
+    return cleaned[:max_length]
+
+
+def _sanitize_recent_messages(recent_messages: list[Any]) -> list[dict[str, str]]:
+    sanitized: list[dict[str, str]] = []
+    for item in recent_messages[-MAX_CHAT_SUGGESTION_MESSAGES:]:
+        if not isinstance(item, dict):
+            continue
+        role = _sanitize_text(str(item.get("role", "unknown")), 32)
+        content = _sanitize_text(str(item.get("content", "")), MAX_CHAT_MESSAGE_LENGTH)
+        if content:
+            sanitized.append({"role": role, "content": content})
+    return sanitized
+
+
 async def moderate_text(message: str) -> ModerationResult:
     parser = PydanticOutputParser(pydantic_object=ModerationResult)
     prompt = ChatPromptTemplate.from_messages(
@@ -127,7 +153,7 @@ async def moderate_text(message: str) -> ModerationResult:
         ]
     )
     chain = prompt.partial(format_instructions=parser.get_format_instructions()) | _build_llm() | parser
-    return await _invoke_with_retry(chain, {"message": message})
+    return await _invoke_with_retry(chain, {"message": _sanitize_text(message, MAX_CHAT_MESSAGE_LENGTH)})
 
 
 async def generate_icebreakers(session: AsyncSession, user_a_id: int, user_b_id: int) -> IcebreakerResult:
@@ -171,6 +197,63 @@ async def generate_icebreakers(session: AsyncSession, user_a_id: int, user_b_id:
     return await _invoke_with_retry(chain, payload)
 
 
+async def generate_chat_suggestions(
+    session: AsyncSession,
+    user_id: int,
+    match_id: int,
+    match_user_id: int,
+    recent_messages: list[Any],
+    mode: str,
+) -> ChatSuggestionsResult:
+    parser = PydanticOutputParser(pydantic_object=ChatSuggestionsResult)
+    prompt = ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                "You are a smart dating conversation assistant. Return only valid JSON.\n{format_instructions}\n"
+                "Generate concise, natural suggestions that improve conversation quality.\n"
+                "Modes: icebreaker, reply, reengagement.\n"
+                "Avoid explicit sexual content, harassment, scams, or manipulative language.\n"
+                "Use only the recent context provided.",
+            ),
+            (
+                "human",
+                "Mode: {mode}\n\n"
+                "Current user profile JSON:\n{user_profile}\n\n"
+                "Match profile JSON:\n{match_profile}\n\n"
+                "Recent messages JSON:\n{recent_messages}\n\n"
+                "Return 3 to 5 short suggestions the user can send next.",
+            ),
+        ]
+    )
+    chain = prompt.partial(format_instructions=parser.get_format_instructions()) | _build_llm() | parser
+
+    user_profile = await _fetch_user_profile(session, user_id)
+    match_profile = await _fetch_user_profile(session, match_user_id)
+    sanitized_messages = _sanitize_recent_messages(recent_messages)
+    payload = {
+        "mode": _sanitize_text(mode, 24),
+        "user_profile": _json_text(
+            {
+                "id": user_profile.user_id,
+                "username": user_profile.username,
+                "bio_text": user_profile.bio_text,
+                "vector_text": user_profile.vector_text,
+            }
+        ),
+        "match_profile": _json_text(
+            {
+                "id": match_profile.user_id,
+                "username": match_profile.username,
+                "bio_text": match_profile.bio_text,
+                "vector_text": match_profile.vector_text,
+            }
+        ),
+        "recent_messages": _json_text(sanitized_messages),
+    }
+    return await _invoke_with_retry(chain, payload)
+
+
 async def analyze_tone(draft_message: str) -> ToneAnalysisResult:
     parser = PydanticOutputParser(pydantic_object=ToneAnalysisResult)
     prompt = ChatPromptTemplate.from_messages(
@@ -188,4 +271,4 @@ async def analyze_tone(draft_message: str) -> ToneAnalysisResult:
         ]
     )
     chain = prompt.partial(format_instructions=parser.get_format_instructions()) | _build_llm() | parser
-    return await _invoke_with_retry(chain, {"draft_message": draft_message})
+    return await _invoke_with_retry(chain, {"draft_message": _sanitize_text(draft_message, MAX_CHAT_MESSAGE_LENGTH)})

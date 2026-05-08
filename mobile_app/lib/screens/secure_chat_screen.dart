@@ -26,7 +26,9 @@ class _SecureChatScreenState extends ConsumerState<SecureChatScreen> {
   final ScrollController _scrollController = ScrollController();
   StreamSubscription<Map<String, dynamic>>? _subscription;
   final List<_ChatItem> _items = <_ChatItem>[];
+  final List<String> _suggestions = <String>[];
   bool _isFetchingIcebreakers = false;
+  bool _isFetchingSuggestions = false;
   bool _isSending = false;
   String? _toneFeedback;
 
@@ -65,6 +67,7 @@ class _SecureChatScreenState extends ConsumerState<SecureChatScreen> {
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(chatClientProvider).preloadMatchPreview(matchId: widget.matchId);
+      _loadSuggestions();
     });
   }
 
@@ -74,6 +77,55 @@ class _SecureChatScreenState extends ConsumerState<SecureChatScreen> {
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadSuggestions() async {
+    if (_isFetchingSuggestions) {
+      return;
+    }
+
+    setState(() {
+      _isFetchingSuggestions = true;
+    });
+
+    try {
+      final authState = ref.read(authStateProvider);
+      final userId = authState.userId;
+      if (userId == null) {
+        return;
+      }
+
+      final suggestions = await ref.read(chatClientProvider).fetchChatSuggestions(
+            matchId: widget.matchId,
+            userId: userId,
+          );
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _suggestions
+          ..clear()
+          ..addAll(suggestions);
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isFetchingSuggestions = false;
+        });
+      }
+    }
+  }
+
+  void _applySuggestion(String suggestion) {
+    _messageController.text = suggestion;
+    _messageController.selection = TextSelection.fromPosition(
+      TextPosition(offset: suggestion.length),
+    );
   }
 
   Future<void> _sendMessage() async {
@@ -92,6 +144,7 @@ class _SecureChatScreenState extends ConsumerState<SecureChatScreen> {
             message: draft,
           );
       _messageController.clear();
+      unawaited(_loadSuggestions());
     } catch (error) {
       if (!mounted) {
         return;
@@ -196,10 +249,7 @@ class _SecureChatScreenState extends ConsumerState<SecureChatScreen> {
                       child: InkWell(
                         borderRadius: BorderRadius.circular(16),
                         onTap: () {
-                          _messageController.text = icebreaker;
-                          _messageController.selection = TextSelection.fromPosition(
-                            TextPosition(offset: icebreaker.length),
-                          );
+                          _applySuggestion(icebreaker);
                           Navigator.of(context).pop();
                         },
                         child: Container(
@@ -339,6 +389,86 @@ class _SecureChatScreenState extends ConsumerState<SecureChatScreen> {
                   ),
                 ),
               ],
+              const SizedBox(height: 12),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Row(
+                      children: <Widget>[
+                        Text(
+                          'Smart Suggestions',
+                          style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                              ),
+                        ),
+                        const Spacer(),
+                        TextButton(
+                          onPressed: _isFetchingSuggestions ? null : _loadSuggestions,
+                          child: _isFetchingSuggestions
+                              ? const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Text('Refresh'),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    if (_isFetchingSuggestions && _suggestions.isEmpty)
+                      Column(
+                        children: List<Widget>.generate(
+                          3,
+                          (int index) => Container(
+                            width: double.infinity,
+                            margin: const EdgeInsets.only(bottom: 10),
+                            height: 44,
+                            decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: 0.08),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                          ),
+                        ),
+                      )
+                    else if (_suggestions.isEmpty)
+                      Text(
+                        'Suggestions will appear here automatically.',
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: Colors.white54,
+                            ),
+                      )
+                    else
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        children: _suggestions
+                            .map(
+                              (String suggestion) => InkWell(
+                                borderRadius: BorderRadius.circular(16),
+                                onTap: () => _applySuggestion(suggestion),
+                                child: Container(
+                                  constraints: const BoxConstraints(minHeight: 44),
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white.withValues(alpha: 0.08),
+                                    borderRadius: BorderRadius.circular(16),
+                                    border: Border.all(color: Colors.white12),
+                                  ),
+                                  child: Text(
+                                    suggestion,
+                                    style: const TextStyle(color: Colors.white, height: 1.25),
+                                  ),
+                                ),
+                              ),
+                            )
+                            .toList(growable: false),
+                      ),
+                  ],
+                ),
+              ),
               const SizedBox(height: 12),
               Expanded(
                 child: ListView.builder(

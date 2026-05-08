@@ -114,6 +114,18 @@ class _SwipeScreenState extends ConsumerState<SwipeScreen> {
                           ),
                         ),
                       ),
+                      FilledButton.icon(
+                        onPressed: () => context.go('/compatibility/1'),
+                        icon: const Icon(Icons.favorite_rounded),
+                        label: const Text('View Compatibility'),
+                        style: FilledButton.styleFrom(
+                          backgroundColor: const Color(0xFF7C3AED),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                        ),
+                      ),
                       OutlinedButton.icon(
                         onPressed: authState.accessToken == null ? null : _runMockLivenessCheck,
                         icon: const Icon(Icons.verified_user_rounded),

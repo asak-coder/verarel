@@ -62,6 +62,7 @@ def _read_current_user_id(x_user_id: str | None) -> int:
 
 
 @router.post("/midpoint", response_model=DateArchitectResponse, status_code=status.HTTP_200_OK)
+@router.get("/api/date-plan/{match_id}", response_model=DateArchitectResponse, include_in_schema=False)
 async def create_date_architect_plan(
     payload: DateArchitectRequest,
     db: AsyncSession = Depends(get_db),

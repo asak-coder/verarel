@@ -6,10 +6,20 @@ from sqlalchemy.orm import DeclarativeBase
 
 from app.observability.tracing import instrument_sqlalchemy
 
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    os.getenv("TEST_DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/dating_app_test"),
-)
+
+DATABASE_URL = os.getenv("DATABASE_URL")
+
+# 🔥 SAFETY CHECK (IMPORTANT)
+if not DATABASE_URL:
+    raise ValueError("DATABASE_URL is not set")
+
+# Convert sync URL → async URL
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://")
+
+elif DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
+
 
 engine = create_async_engine(
     DATABASE_URL,

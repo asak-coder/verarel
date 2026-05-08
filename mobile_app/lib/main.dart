@@ -1,86 +1,64 @@
 import 'dart:async';
 
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import 'controllers/auth_controller.dart';
-import 'screens/date_architect_screen.dart';
-import 'screens/date_planner_screen.dart';
-import 'screens/profile_studio_screen.dart';
-import 'screens/secure_chat_screen.dart';
-import 'screens/swipe_screen.dart';
-import 'services/chat_client.dart';
-
-final dioProvider = Provider<Dio>((ref) {
-  return Dio(
-    BaseOptions(
-      baseUrl: 'https://api.aken.firm.in',
-      connectTimeout: const Duration(seconds: 15),
-      receiveTimeout: const Duration(seconds: 20),
-      sendTimeout: const Duration(seconds: 20),
-      headers: <String, dynamic>{
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-      },
-    ),
-  );
-});
-
-final authStateProvider = StateNotifierProvider<AuthController, AuthState>((ref) {
-  return AuthController(ref.read(dioProvider));
-});
-
-final chatClientProvider = Provider<ChatClient>((ref) {
-  return ChatClient(
-    dio: ref.read(dioProvider),
-    getAccessToken: () => ref.read(authStateProvider).accessToken,
-  );
-});
+import 'core/providers.dart';
+import 'features/auth/login_screen.dart';
+import 'features/auth/signup_screen.dart';
+import 'features/chat/chat_screen.dart';
+import 'features/compatibility/compatibility_widget.dart';
+import 'features/date_planner/date_plan_screen.dart';
+import 'features/match/match_screen.dart';
+import 'features/trust/verification_screen.dart';
 
 final routerProvider = Provider<GoRouter>((ref) {
+  final AuthController authController = ref.read(authControllerProvider.notifier);
+
   return GoRouter(
-    initialLocation: '/swipe',
-    refreshListenable: GoRouterRefreshStream(ref.read(authStateProvider.notifier).stream),
+    initialLocation: authController.accessToken == null ? '/login' : '/match',
+    refreshListenable: GoRouterRefreshStream(authController.stream),
     routes: <RouteBase>[
       GoRoute(
-        path: '/swipe',
+        path: '/login',
+        builder: (BuildContext context, GoRouterState state) => const LoginScreen(),
+      ),
+      GoRoute(
+        path: '/signup',
+        builder: (BuildContext context, GoRouterState state) => const SignupScreen(),
+      ),
+      GoRoute(
+        path: '/match',
+        builder: (BuildContext context, GoRouterState state) => const MatchScreen(),
+      ),
+      GoRoute(
+        path: '/chat/:matchId',
         builder: (BuildContext context, GoRouterState state) {
-          return const SwipeScreen();
+          final int matchId = int.tryParse(state.pathParameters['matchId'] ?? '0') ?? 0;
+          return ChatScreen(matchId: matchId);
         },
       ),
       GoRoute(
-        path: '/profile-studio',
+        path: '/compatibility/:matchId',
         builder: (BuildContext context, GoRouterState state) {
-          return const ProfileStudioScreen();
+          final int matchId = int.tryParse(state.pathParameters['matchId'] ?? '0') ?? 0;
+          return CompatibilityWidget(matchId: matchId);
         },
       ),
       GoRoute(
-        path: '/date-architect/:targetUserId',
+        path: '/trust/:userId',
         builder: (BuildContext context, GoRouterState state) {
-          final int targetUserId = int.tryParse(state.pathParameters['targetUserId'] ?? '') ?? 0;
-          return DateArchitectScreen(targetUserId: targetUserId);
+          final int userId = int.tryParse(state.pathParameters['userId'] ?? '0') ?? 0;
+          return VerificationScreen(userId: userId);
         },
       ),
       GoRoute(
-        path: '/date-planner/:matchId',
+        path: '/date-plan/:matchId',
         builder: (BuildContext context, GoRouterState state) {
-          final int matchId = int.tryParse(state.pathParameters['matchId'] ?? '') ?? 0;
-          return DatePlannerScreen(matchId: matchId);
-        },
-      ),
-      GoRoute(
-        path: '/secure-chat/:matchId/:userAId/:userBId',
-        builder: (BuildContext context, GoRouterState state) {
-          final int matchId = int.tryParse(state.pathParameters['matchId'] ?? '') ?? 0;
-          final int userAId = int.tryParse(state.pathParameters['userAId'] ?? '') ?? 0;
-          final int userBId = int.tryParse(state.pathParameters['userBId'] ?? '') ?? 0;
-          return SecureChatScreen(
-            matchId: matchId,
-            userAId: userAId,
-            userBId: userBId,
-          );
+          final int matchId = int.tryParse(state.pathParameters['matchId'] ?? '0') ?? 0;
+          return DatePlanScreen(matchId: matchId);
         },
       ),
     ],
@@ -88,23 +66,26 @@ final routerProvider = Provider<GoRouter>((ref) {
 });
 
 void main() {
-  runApp(const ProviderScope(child: AkenApp()));
+  runApp(const ProviderScope(child: VerarelApp()));
 }
 
-class AkenApp extends ConsumerWidget {
-  const AkenApp({super.key});
+class VerarelApp extends ConsumerWidget {
+  const VerarelApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final router = ref.watch(routerProvider);
+    final GoRouter router = ref.watch(routerProvider);
 
     return MaterialApp.router(
       debugShowCheckedModeBanner: false,
-      title: 'Aken',
+      title: 'verarel.com',
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF6D5EF6)),
         useMaterial3: true,
         brightness: Brightness.dark,
+        colorScheme: ColorScheme.fromSeed(
+          seedColor: const Color(0xFF7C3AED),
+          brightness: Brightness.dark,
+        ),
       ),
       routerConfig: router,
     );

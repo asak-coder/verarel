@@ -102,8 +102,44 @@ class ChatClient {
     throw StateError('Invalid tone check response');
   }
 
+  Future<List<String>> fetchChatSuggestions({
+    required int matchId,
+    required int userId,
+  }) async {
+    final response = await _dio.get<dynamic>(
+      '/chat/suggestions/$matchId',
+      queryParameters: <String, dynamic>{
+        'user_id': userId,
+      },
+    );
+    final data = response.data;
+    if (data is Map<String, dynamic>) {
+      final suggestions = data['suggestions'];
+      if (suggestions is List) {
+        return suggestions.map((dynamic item) => item.toString()).toList(growable: false);
+      }
+    }
+    throw StateError('Invalid suggestions response');
+  }
+
+  Future<void> triggerChatSuggestions({
+    required int matchId,
+    required int userId,
+    required List<Map<String, dynamic>> recentMessages,
+    required String mode,
+  }) async {
+    await _dio.post<dynamic>(
+      '/chat/generate',
+      data: <String, dynamic>{
+        'user_id': userId,
+        'match_id': matchId,
+        'recent_messages': recentMessages,
+        'mode': mode,
+      },
+    );
+  }
+
   Future<void> preloadMatchPreview({required int matchId}) async {
-    // Touch the backend connection early so the chat screen feels instant.
     await connect(matchId);
   }
 
